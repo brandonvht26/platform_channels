@@ -1,4 +1,4 @@
-package com.example.platform_channels
+package com.tuinstituto.fitness_tracker
 
 import io.flutter.embedding.android.FlutterActivity
 
