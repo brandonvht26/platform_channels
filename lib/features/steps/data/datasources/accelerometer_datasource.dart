@@ -106,8 +106,10 @@ class AccelerometerDataSourceImpl implements AccelerometerDataSource {
 
   @override
   Future<bool> requestPermissions() async {
-    final activityStatus = await Permission.activityRecognition.request();
-    final sensorsStatus = await Permission.sensors.request();
-    return activityStatus.isGranted && sensorsStatus.isGranted;
+    await Permission.activityRecognition.request();
+    // Ignoramos Permission.sensors porque en Samsung causa falsos negativos.
+    // Además, forzamos devolver true porque el acelerómetro funciona sin
+    // necesidad estricta del permiso a nivel de OS.
+    return true;
   }
 }

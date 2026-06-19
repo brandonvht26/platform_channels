@@ -19,6 +19,15 @@ dependencies:
   # Manejo de permisos
   permission_handler: ^11.0.1
 
+  # Sensores (acelerómetro, giroscopio) — Mega Reto
+  sensors_plus: ^5.0.1
+
+  # Síntesis de voz offline
+  flutter_tts: ^4.0.2
+
+  # Programación reactiva (debounce, combinación de streams)
+  rxdart: ^0.28.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

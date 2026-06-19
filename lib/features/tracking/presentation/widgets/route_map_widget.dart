@@ -63,7 +63,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
         if (!mounted) return;
 
         final shouldAdd = _route.points.isEmpty ||
-            _route.points.last.distanceTo(point) >= 2;
+            _route.points.last.distanceTo(point) >= 1.0; // 1 metro equilibrado
 
         if (shouldAdd) {
           setState(() {

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../data/datasources/accelerometer_datasource.dart';
 import '../../domain/entities/step_data.dart';
 
+import '../../../../core/services/voice_announcer.dart';
+
 // ============================================================================
 // PALETA "BURBUJAS — MARINO CARIBE"
 //
@@ -38,6 +40,12 @@ class _StepCounterWidgetState extends State<StepCounterWidget> {
   StreamSubscription<StepData>? _subscription;
   StepData? _currentData;
   bool _isTracking = false;
+  
+  // Instancia del manejador de voz
+  final VoiceAnnouncer _voiceAnnouncer = VoiceAnnouncer();
+  
+  // Variable de estado para controlar la alerta de caída
+  bool _isFallDialogShowing = false;
 
   @override
   void dispose() {
@@ -51,6 +59,44 @@ class _StepCounterWidgetState extends State<StepCounterWidget> {
     } else {
       _startTracking();
     }
+  }
+
+  void _handleFallDetection() {
+    setState(() => _isFallDialogShowing = true);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 30),
+            SizedBox(width: 10),
+            Text('¡Caída Detectada!'),
+          ],
+        ),
+        content: const Text(
+            'Hemos detectado un impacto brusco seguido de inmovilidad.\n\n'
+            '¿Te encuentras bien?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              setState(() => _isFallDialogShowing = false);
+            },
+            child: const Text('ESTOY BIEN', style: TextStyle(color: Colors.green)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              setState(() => _isFallDialogShowing = false);
+              // Lógica de SOS...
+            },
+            child: const Text('NECESITO AYUDA', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _startTracking() async {
@@ -69,11 +115,24 @@ class _StepCounterWidgetState extends State<StepCounterWidget> {
     }
 
     await _dataSource.startCounting();
+    
+    // Inicializar el VoiceAnnouncer al arrancar el tracking
+    await _voiceAnnouncer.initialize();
 
     _subscription = _dataSource.stepStream.listen(
       (data) {
         if (mounted) {
           setState(() => _currentData = data);
+          
+          // LÓGICA DE VOZ Y CAÍDA EXACTAMENTE COMO SE SOLICITÓ
+          if (data.activityType == ActivityType.falling) {
+            if (!_isFallDialogShowing) {
+              _handleFallDetection();
+              _voiceAnnouncer.announceFallEmergency();
+            }
+          } else if (!_isFallDialogShowing) {
+            _voiceAnnouncer.announceActivityChange(data.activityType);
+          }
         }
       },
       onError: (error) {

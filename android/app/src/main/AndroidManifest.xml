@@ -8,6 +8,23 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 
+    <!--
+      HIGH_SAMPLING_RATE_SENSORS — Android 12+ (API 31+)
+      Necesario para leer el acelerómetro a SENSOR_DELAY_GAME (~50 Hz)
+      durante la detección de caídas. En versiones anteriores se ignora.
+    -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS"/>
+
+    <!-- 
+      CRÍTICO: Android 11+ requiere declarar qué paquetes externos vamos a consultar.
+      Sin esto, flutter_tts falla silenciosamente porque no puede encontrar el motor TTS.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:label="Fitness Tracker"
         android:name="${applicationName}"

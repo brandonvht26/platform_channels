@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 /// Tipos de actividad detectados
-enum ActivityType { stationary, walking, running }
+enum ActivityType { stationary, walking, running, falling }
 
 /// Datos del acelerómetro procesados en un "frame" de pasos.
 ///
@@ -39,6 +39,8 @@ class StepData extends Equatable {
         return ActivityType.walking;
       case 'running':
         return ActivityType.running;
+      case 'falling':
+        return ActivityType.falling;
       default:
         return ActivityType.stationary;
     }

@@ -143,13 +143,17 @@ class MainActivity: FlutterFragmentActivity() {
 
         var stepCount = 0
         var lastFilteredMagnitude = 0.0
+        var lastActivityMagnitude = 0.0
         var sensorEventListener: SensorEventListener? = null
 
-        val magnitudeHistory = mutableListOf<Double>()
-        val historySize = 10
+        // Historial basado en TIEMPO REAL: Pair(timestamp_ms, magnitud)
+        val magnitudeHistory = mutableListOf<Pair<Long, Double>>()
+        val yHistory = mutableListOf<Pair<Long, Double>>() // Nuevo historial para el vector Y
         var sampleCount = 0
+        
         var lastActivityType = "stationary"
-        var activityConfidence = 0
+        var reportedActivityType = "stationary"
+        var stateChangeStartTime: Long = 0
 
         // --- EventChannel: stream continuo ---
         EventChannel(
@@ -161,41 +165,70 @@ class MainActivity: FlutterFragmentActivity() {
                 sensorEventListener = object : SensorEventListener {
                     override fun onSensorChanged(event: SensorEvent?) {
                         event?.let {
+                            val currentTime = System.currentTimeMillis()
                             val x = it.values[0].toDouble()
                             val y = it.values[1].toDouble()
                             val z = it.values[2].toDouble()
                             val rawMagnitude = sqrt(x * x + y * y + z * z)
 
-                            // Low-Pass Filter: media móvil de 10 muestras
-                            magnitudeHistory.add(rawMagnitude)
-                            if (magnitudeHistory.size > historySize) {
-                                magnitudeHistory.removeAt(0)
-                            }
-                            val filteredMagnitude = magnitudeHistory.average()
+                            // Low-Pass Filter: Ventana estricta de 3000 ms (3 segundos)
+                            magnitudeHistory.add(Pair(currentTime, rawMagnitude))
+                            magnitudeHistory.removeAll { currentTime - it.first > 3000 }
+                            
+                            yHistory.add(Pair(currentTime, y))
+                            yHistory.removeAll { currentTime - it.first > 3000 }
+                            
+                            val filteredMagnitude = magnitudeHistory.map { p -> p.second }.average()
 
-                            // Detección de paso sobre señal filtrada
-                            if (filteredMagnitude > 12.0 && lastFilteredMagnitude <= 12.0) {
+                            // Detección de paso
+                            if (filteredMagnitude > 10.8 && lastFilteredMagnitude <= 10.8) {
                                 stepCount++
                             }
                             lastFilteredMagnitude = filteredMagnitude
+                            
+                            // CLASIFICACIÓN DE ACTIVIDAD (Amplitud Max-Min en 3 segundos)
+                            val maxMag = magnitudeHistory.maxOfOrNull { p -> p.second } ?: 9.8
+                            val minMag = magnitudeHistory.minOfOrNull { p -> p.second } ?: 9.8
+                            val delta = maxMag - minMag
 
-                            // Clasificación de actividad con histéresis (3 muestras)
-                            val newActivityType = when {
-                                filteredMagnitude < 10.5 -> "stationary"
-                                filteredMagnitude < 13.5 -> "walking"
+                            var newActivityType = when {
+                                delta < 1.0 -> "stationary" // Reducido para que sea más fácil salir del reposo
+                                delta < 8.0 -> "walking"   // Reducido para que empiece a detectar "correr" más rápido
                                 else -> "running"
                             }
-                            activityConfidence = if (newActivityType == lastActivityType) {
-                                activityConfidence + 1
-                            } else {
-                                0
+
+                            // DETECCIÓN DE CAÍDA (Mejorada usando el vector Y)
+                            // 1. Inmovilidad total AHORA (ventada del último 1 segundo = 1000 ms)
+                            val recentHistory = magnitudeHistory.filter { currentTime - it.first <= 1000 }
+                            val recentMax = recentHistory.maxOfOrNull { p -> p.second } ?: 9.8
+                            val recentMin = recentHistory.minOfOrNull { p -> p.second } ?: 9.8
+                            val recentDelta = recentMax - recentMin
+                            
+                            // 2. Análisis del Vector Y durante la inmovilidad
+                            val recentYHistory = yHistory.filter { currentTime - it.first <= 1000 }
+                            val recentYAverage = if (recentYHistory.isNotEmpty()) recentYHistory.map { p -> p.second }.average() else 9.8
+                            
+                            // Si corres y te detienes, el celular sigue en tu mano/bolsillo vertical (Y ~ 9.8).
+                            // Una caída real termina con el celular tirado/acostado en el suelo (Y ~ 0.0).
+                            val isPhoneFlatOnGround = Math.abs(recentYAverage) < 5.0
+
+                            if (delta > 15.0 && recentDelta < 2.0 && isPhoneFlatOnGround) {
+                                newActivityType = "falling"
                             }
-                            val finalActivityType = if (activityConfidence >= 3) {
-                                newActivityType
+
+                            if (newActivityType == "falling") {
+                                reportedActivityType = "falling"
                             } else {
-                                lastActivityType
+                                // DEBOUNCE ESTRICTO DE 1.5 SEGUNDOS BASADO EN RELOJ
+                                if (newActivityType != lastActivityType) {
+                                    lastActivityType = newActivityType
+                                    stateChangeStartTime = currentTime
+                                } else {
+                                    if (currentTime - stateChangeStartTime >= 1500) {
+                                        reportedActivityType = newActivityType
+                                    }
+                                }
                             }
-                            lastActivityType = newActivityType
 
                             // Enviar 1 de cada 3 muestras a Flutter
                             sampleCount++
@@ -203,7 +236,7 @@ class MainActivity: FlutterFragmentActivity() {
                                 sampleCount = 0
                                 events?.success(mapOf(
                                     "stepCount" to stepCount,
-                                    "activityType" to finalActivityType,
+                                    "activityType" to reportedActivityType,
                                     "magnitude" to filteredMagnitude
                                 ))
                             }
@@ -377,8 +410,8 @@ class MainActivity: FlutterFragmentActivity() {
                     //
                     locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
-                        5000L,   // mínimo 5 segundos entre lecturas
-                        5f,      // mínimo 5 metros de desplazamiento
+                        2000L,   // 2 segundos (equilibrado)
+                        2f,      // 2 metros (evita el ruido estático)
                         locationListener!!
                     )
                 } catch (e: SecurityException) {
