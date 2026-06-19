@@ -1,0 +1,437 @@
+﻿
+
+
+
+Taller 15: Desarrollo de Aplicación Fitness con Platform Channels en Flutter
+
+
+
+
+1. Introducción
+
+
+1.1 Objetivo del Taller
+
+
+Construir una aplicación de fitness que utiliza Platform Channels para acceder a funcionalidades nativas de Android como: 
+
+
+- Autenticación biométrica (huella dactilar) 
+
+
+- Contador de pasos (acelerómetro) 
+
+
+- Tracking de rutas GPS
+
+
+
+
+
+1.2¿Qué son los Platform Channels?
+
+
+1.2.1Concepto Fundamental
+
+
+Los Platform Channels son el puente de comunicación entre el código Flutter (Dart) y el código nativo (Kotlin/Java en Android, Swift/Objective-C en iOS).
+
+
+
+
+
+1.2.2Tipos de Platform Channels
+
+
+MethodChannel - Comunicación Petición/Respuesta
+
+
+// Flutter llama → Android respondefinal result = await methodChannel.invokeMethod('metodoDePrueba');
+
+
+Casos de uso: 
+
+
+- Verificar disponibilidad de biometría 
+
+
+- Solicitar permisos 
+
+
+- Obtener ubicación actual
+
+
+EventChannel - Streaming de Datos
+
+
+// Android envía datos continuamente → Flutter escuchaeventChannel.receiveBroadcastStream().listen((data) {  print('Nuevo dato: $data');});
+
+
+Casos de uso: 
+
+
+- Stream de datos del acelerómetro 
+
+
+- Actualizaciones continuas de GPS 
+
+
+- Monitoreo de sensores
+
+
+1.4Arquitectura del Proyecto
+
+
+1.4.1Estructura de Carpetas
+
+
+
+
+
+
+
+
+
+
+
+1.5Configuración Inicial
+
+
+1.5.1Paso 1: Crear el Proyecto Flutter
+
+
+flutter create fitness_trackercd fitness_tracker
+
+
+1.5.2Paso 2: Configurar pubspec.yaml
+
+
+name: fitness_trackerdescription: App de fitness con Platform Channelsversion: 1.0.0environment:  sdk: '&gt;=3.0.0 &lt;4.0.0'dependencies:  flutter:    sdk: flutter  # Gestión de estado  flutter_bloc: ^8.1.3  equatable: ^2.0.5  # Inyección de dependencias  get_it: ^7.6.4  # Manejo de permisos  permission_handler: ^11.0.1dev_dependencies:  flutter_test:    sdk: flutter  flutter_lints: ^3.0.0
+
+
+Ejecutar:
+
+
+flutter pub get
+
+
+1.5.3Paso 3: Configurar Permisos en Android
+
+
+android/app/src/main/AndroidManifest.xml
+
+
+&lt;manifest xmlns:android="http://schemas.android.com/apk/res/android"&gt;    &lt;!-- Permisos necesarios --&gt;    &lt;uses-permission android:name="android.permission.USE_BIOMETRIC"/&gt;    &lt;uses-permission android:name="android.permission.BODY_SENSORS"/&gt;    &lt;uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/&gt;    &lt;uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/&gt;    &lt;uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/&gt;    &lt;uses-permission android:name="android.permission.FOREGROUND_SERVICE"/&gt;    &lt;application        android:label="Fitness Tracker"        android:name="${applicationName}"        android:icon="@mipmap/ic_launcher"&gt;        &lt;activity            android:name=".MainActivity"            android:exported="true"            android:launchMode="singleTop"            android:theme="@style/LaunchTheme"            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"            android:hardwareAccelerated="true"            android:windowSoftInputMode="adjustResize"&gt;            &lt;meta-data                android:name="io.flutter.embedding.android.NormalTheme"                android:resource="@style/NormalTheme" /&gt;            &lt;intent-filter&gt;                &lt;action android:name="android.intent.action.MAIN"/&gt;                &lt;category android:name="android.intent.category.LAUNCHER"/&gt;            &lt;/intent-filter&gt;        &lt;/activity&gt;        &lt;!-- Meta-data crítica para Android v2 embedding --&gt;        &lt;meta-data            android:name="flutterEmbedding"            android:value="2" /&gt;    &lt;/application&gt;&lt;/manifest&gt;
+
+
+1.5.4Paso 4: Configurar build.gradle
+
+
+android/app/build.gradle
+
+
+plugins {    id "com.android.application"    id "kotlin-android"    id "dev.flutter.flutter-gradle-plugin"}android {    namespace = "com.tuinstituto.fitness_tracker"    compileSdk = flutter.compileSdkVersion    ndkVersion = flutter.ndkVersion    compileOptions {        sourceCompatibility = JavaVersion.VERSION_1_8        targetCompatibility = JavaVersion.VERSION_1_8    }    kotlinOptions {        jvmTarget = JavaVersion.VERSION_1_8    }    defaultConfig {        applicationId = "com.tuinstituto.fitness_tracker"        minSdk = flutter.minSdkVersion        targetSdk = flutter.targetSdkVersion        versionCode = flutter.versionCode        versionName = flutter.versionName    }    // IMPORTANTE: Dependencia de biometría    dependencies {        implementation "androidx.biometric:biometric:1.1.0"    }    buildTypes {        release {            signingConfig = signingConfigs.debug        }    }}flutter {    source = "../.."}
+
+
+1.5.5Paso 5: Crear Archivo de Constantes
+
+
+lib/core/platform/platform_channels.dart
+
+
+/// Constantes para los nombres de Platform Channels/// Centralizar nombres evita errores de tipeoclass PlatformChannels {  // Prevenir instanciación  PlatformChannels._();  static const String biometric = 'com.tuinstituto.fitness/biometric';  static const String accelerometer = 'com.tuinstituto.fitness/accelerometer';  static const String gps = 'com.tuinstituto.fitness/gps';}
+
+
+
+
+
+1.6Módulo 1: Autenticación Biométrica
+
+
+1.6.1Objetivo
+
+
+Implementar autenticación por huella dactilar usando MethodChannel.
+
+
+1.6.2Diagrama de Flujo
+
+
+
+
+
+1.6.3Paso 1.1: Crear Entity
+
+
+lib/features/auth/domain/entities/auth_result.dart
+
+
+import 'package:equatable/equatable.dart';/// Resultado de la autenticación biométricaclass AuthResult extends Equatable {  final bool success;  final String? message;  const AuthResult({    required this.success,    this.message,  });  @override  List&lt;Object?&gt; get props =&gt; [success, message];}
+
+
+1.6.4Paso 1.2: Crear DataSource (Lado Flutter)
+
+
+lib/features/auth/data/datasources/biometric_datasource.dart
+
+
+import 'package:flutter/services.dart';import '../../../../core/platform/platform_channels.dart';import '../../domain/entities/auth_result.dart';/// DataSource para autenticación biométrica usando Platform Channels/// - Este es el LADO FLUTTER del Platform Channel/// - Usamos MethodChannel porque es petición/respuesta/// - El nombre del canal DEBE coincidir con el lado Androidabstract class BiometricDataSource {  Future&lt;bool&gt; canAuthenticate();  Future&lt;AuthResult&gt; authenticate();}class BiometricDataSourceImpl implements BiometricDataSource {  /// MethodChannel: canal de comunicación Flutter ↔ Android  /// El nombre debe ser exactamente igual en ambos lados  final MethodChannel _channel = const MethodChannel(    PlatformChannels.biometric  );  @override  Future&lt;bool&gt; canAuthenticate() async {    try {      /// invokeMethod: envía un mensaje a Android y espera respuesta      /// - Parámetro 1: nombre del método (debe coincidir en Android)      /// - Retorna: un Future con la respuesta      final result = await _channel.invokeMethod&lt;bool&gt;(        'checkBiometricSupport'      );      return result ?? false;    } on PlatformException catch (e) {      print('Error verificando biometría: ${e.message}');      return false;    }  }  @override  Future&lt;AuthResult&gt; authenticate() async {    try {      /// Llamamos al método 'authenticate' del lado Android      final result = await _channel.invokeMethod&lt;bool&gt;('authenticate');      return AuthResult(        success: result ?? false,        message: result == true ? 'Autenticación exitosa' : 'Autenticación fallida',      );    } on PlatformException catch (e) {      return AuthResult(        success: false,        message: 'Error: ${e.message}',      );    }  }}
+
+
+1.6.5Paso 1.3: Implementar Lado Android
+
+
+android/app/src/main/kotlin/com/tuinstituto/fitness_tracker/MainActivity.kt
+
+
+package com.tuinstituto.fitness_trackerimport android.os.Bundleimport androidx.biometric.BiometricManagerimport androidx.biometric.BiometricPromptimport androidx.core.content.ContextCompatimport io.flutter.embedding.android.FlutterFragmentActivityimport io.flutter.embedding.engine.FlutterEngineimport io.flutter.plugin.common.MethodChannelimport java.util.concurrent.Executor/** * MainActivity: punto de entrada de la aplicación Android * - Extiende FlutterFragmentActivity (necesario para BiometricPrompt) * - Configura los Platform Channels aquí */class MainActivity: FlutterFragmentActivity() {    // PASO 1: Definir nombre del canal (DEBE coincidir con Dart)    private val BIOMETRIC_CHANNEL = "com.tuinstituto.fitness/biometric"    // PASO 2: Variables para biometría    private lateinit var executor: Executor    private lateinit var biometricPrompt: BiometricPrompt    private var pendingResult: MethodChannel.Result? = null    /**     * configureFlutterEngine: se llama al iniciar la app     * AQUÍ configuramos TODOS los Platform Channels     */    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {        super.configureFlutterEngine(flutterEngine)        // Inicializar executor para biometría        executor = ContextCompat.getMainExecutor(this)        // CONFIGURAR PLATFORM CHANNEL - BIOMETRÍA        MethodChannel(            flutterEngine.dartExecutor.binaryMessenger,            BIOMETRIC_CHANNEL        ).setMethodCallHandler { call, result -&gt;            /**             * setMethodCallHandler: escucha llamadas desde Flutter             *             * Parámetros:             * - call: contiene el nombre del método y argumentos             * - result: objeto para enviar respuesta a Flutter             */            when (call.method) {                "checkBiometricSupport" -&gt; {                    // Flutter llamó a checkBiometricSupport()                    val canAuth = checkBiometricSupport()                    result.success(canAuth)  // Enviamos respuesta                }                "authenticate" -&gt; {                    // Guardamos result para responder después (async)                    pendingResult = result                    showBiometricPrompt()                }                else -&gt; {                    // Método no reconocido                    result.notImplemented()                }            }        }    }    /**     * Verificar si el dispositivo soporta biometría     */    private fun checkBiometricSupport(): Boolean {        val biometricManager = BiometricManager.from(this)        return when (biometricManager.canAuthenticate(            BiometricManager.Authenticators.BIOMETRIC_STRONG        )) {            BiometricManager.BIOMETRIC_SUCCESS -&gt; true            else -&gt; false        }    }    /**     * Mostrar diálogo de autenticación biométrica     */    private fun showBiometricPrompt() {        // Configurar información del diálogo        val promptInfo = BiometricPrompt.PromptInfo.Builder()            .setTitle("Autenticación Biométrica")            .setSubtitle("Usa tu huella dactilar")            .setDescription("Coloca tu dedo en el sensor")            .setNegativeButtonText("Cancelar")            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)            .build()        // Crear BiometricPrompt con callbacks        biometricPrompt = BiometricPrompt(this, executor,            object : BiometricPrompt.AuthenticationCallback() {                override fun onAuthenticationSucceeded(                    result: BiometricPrompt.AuthenticationResult                ) {                    super.onAuthenticationSucceeded(result)                    //  Autenticación exitosa                    pendingResult?.success(true)                    pendingResult = null                }                override fun onAuthenticationError(                    errorCode: Int,                    errString: CharSequence                ) {                    super.onAuthenticationError(errorCode, errString)                    // ❌ Error en autenticación                    pendingResult?.success(false)                    pendingResult = null                }                override fun onAuthenticationFailed() {                    super.onAuthenticationFailed()                    // Usuario puede reintentar                }            }        )        // Mostrar el diálogo        biometricPrompt.authenticate(promptInfo)    }}
+
+
+1.6.6Paso 1.4: Crear Use Case
+
+
+lib/features/auth/domain/usecases/authenticate_user.dart
+
+
+import '../entities/auth_result.dart';import '../../data/datasources/biometric_datasource.dart';/// Use Case: lógica de negocio de autenticaciónclass AuthenticateUser {  final BiometricDataSource dataSource;  AuthenticateUser(this.dataSource);  Future&lt;AuthResult&gt; call() async {    // Verificar si el dispositivo soporta biometría    final canAuth = await dataSource.canAuthenticate();    if (!canAuth) {      return const AuthResult(        success: false,        message: 'Biometría no disponible',      );    }    // Autenticar    return await dataSource.authenticate();  }}
+
+
+1.6.7Paso 1.5: Crear BLoC
+
+
+lib/features/auth/presentation/bloc/auth_bloc.dart
+
+
+import 'package:flutter_bloc/flutter_bloc.dart';import 'package:equatable/equatable.dart';import '../../domain/usecases/authenticate_user.dart';import '../../domain/entities/auth_result.dart';// EVENTSabstract class AuthEvent extends Equatable {  @override  List&lt;Object&gt; get props =&gt; [];}class AuthenticateRequested extends AuthEvent {}// STATESabstract class AuthState extends Equatable {  @override  List&lt;Object&gt; get props =&gt; [];}class AuthInitial extends AuthState {}class AuthLoading extends AuthState {}class AuthSuccess extends AuthState {  final AuthResult result;  AuthSuccess(this.result);  @override  List&lt;Object&gt; get props =&gt; [result];}class AuthFailure extends AuthState {  final String message;  AuthFailure(this.message);  @override  List&lt;Object&gt; get props =&gt; [message];}// BLOCclass AuthBloc extends Bloc&lt;AuthEvent, AuthState&gt; {  final AuthenticateUser authenticateUser;  AuthBloc(this.authenticateUser) : super(AuthInitial()) {    on&lt;AuthenticateRequested&gt;(_onAuthenticateRequested);  }  Future&lt;void&gt; _onAuthenticateRequested(    AuthenticateRequested event,    Emitter&lt;AuthState&gt; emit,  ) async {    emit(AuthLoading());    try {      final result = await authenticateUser();      if (result.success) {        emit(AuthSuccess(result));      } else {        emit(AuthFailure(result.message ?? 'Error desconocido'));      }    } catch (e) {      emit(AuthFailure(e.toString()));    }  }}
+
+
+1.6.8Paso 1.6: Crear UI
+
+
+lib/features/auth/presentation/pages/login_page.dart
+
+
+import 'package:flutter/material.dart';import 'package:flutter_bloc/flutter_bloc.dart';import '../bloc/auth_bloc.dart';class LoginPage extends StatelessWidget {  final VoidCallback onAuthSuccess;  const LoginPage({super.key, required this.onAuthSuccess});  @override  Widget build(BuildContext context) {    return Scaffold(      body: BlocListener&lt;AuthBloc, AuthState&gt;(        listener: (context, state) {          if (state is AuthSuccess) {            onAuthSuccess();          } else if (state is AuthFailure) {            ScaffoldMessenger.of(context).showSnackBar(              SnackBar(                content: Text(state.message),                backgroundColor: Colors.red,              ),            );          }        },        child: BlocBuilder&lt;AuthBloc, AuthState&gt;(          builder: (context, state) {            return Container(              decoration: const BoxDecoration(                gradient: LinearGradient(                  begin: Alignment.topLeft,                  end: Alignment.bottomRight,                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],                ),              ),              child: SafeArea(                child: Center(                  child: Column(                    mainAxisAlignment: MainAxisAlignment.center,                    children: [                      const Icon(                        Icons.fitness_center,                        size: 100,                        color: Colors.white,                      ),                      const SizedBox(height: 24),                      const Text(                        'Fitness Tracker',                        style: TextStyle(                          fontSize: 32,                          fontWeight: FontWeight.bold,                          color: Colors.white,                        ),                      ),                      const SizedBox(height: 48),                      if (state is AuthLoading)                        const CircularProgressIndicator(color: Colors.white)                      else                        ElevatedButton.icon(                          onPressed: () {                            context.read&lt;AuthBloc&gt;().add(AuthenticateRequested());                          },                          icon: const Icon(Icons.fingerprint),                          label: const Text('Autenticar con Huella'),                          style: ElevatedButton.styleFrom(                            padding: const EdgeInsets.symmetric(                              horizontal: 32,                              vertical: 16,                            ),                            backgroundColor: Colors.white,                            foregroundColor: const Color(0xFF6366F1),                          ),                        ),                    ],                  ),                ),              ),            );          },        ),      ),    );  }}
+
+
+1.6.9 Checkpoint 1: Probar Biometría
+
+
+Crear main.dart temporal:
+
+
+import 'package:flutter/material.dart';import 'package:flutter_bloc/flutter_bloc.dart';import 'features/auth/data/datasources/biometric_datasource.dart';import 'features/auth/domain/usecases/authenticate_user.dart';import 'features/auth/presentation/bloc/auth_bloc.dart';import 'features/auth/presentation/pages/login_page.dart';void main() {  runApp(const FitnessApp());}class FitnessApp extends StatelessWidget {  const FitnessApp({super.key});  @override  Widget build(BuildContext context) {    final biometricDataSource = BiometricDataSourceImpl();    final authenticateUser = AuthenticateUser(biometricDataSource);    return MaterialApp(      title: 'Fitness Tracker',      theme: ThemeData(useMaterial3: true),      home: BlocProvider(        create: (_) =&gt; AuthBloc(authenticateUser),        child: LoginPage(          onAuthSuccess: () {            print('Autenticación exitosa');          },        ),      ),    );  }}
+
+
+Ejecutar:
+
+
+flutter run
+
+
+
+
+
+1.7Módulo 2: Contador de Pasos
+
+
+1.7.1Objetivo
+
+
+Implementar contador de pasos usando EventChannel para streaming de datos del acelerómetro.
+
+
+1.7.2Diagrama de Flujo
+
+
+
+
+
+1.7.3Paso 2.1: Crear Entity
+
+
+lib/features/auth/domain/entities/step_data.dart
+
+
+import 'package:equatable/equatable.dart';/// Tipos de actividad detectadosenum ActivityType {  stationary,  // Quieto  walking,     // Caminando  running,     // Corriendo}/// Datos del acelerómetroclass StepData extends Equatable {  final int stepCount;  final ActivityType activityType;  final double magnitude;  const StepData({    required this.stepCount,    required this.activityType,    required this.magnitude,  });  /// Calorías estimadas (0.04 cal por paso)  double get estimatedCalories =&gt; stepCount * 0.04;  /// Factory para crear desde Map del Platform Channel  factory StepData.fromMap(Map&lt;dynamic, dynamic&gt; map) {    final activityTypeString = map['activityType'] as String;    return StepData(      stepCount: map['stepCount'] as int,      activityType: _parseActivityType(activityTypeString),      magnitude: (map['magnitude'] as num).toDouble(),    );  }  static ActivityType _parseActivityType(String type) {    switch (type) {      case 'walking':        return ActivityType.walking;      case 'running':        return ActivityType.running;      default:        return ActivityType.stationary;    }  }  @override  List&lt;Object&gt; get props =&gt; [stepCount, activityType, magnitude];}
+
+
+1.7.4Paso 2.2: Crear DataSource (Lado Flutter)
+
+
+lib/features/auth/data/datasources/accelerometer_datasource.dart
+
+
+import 'package:flutter/services.dart';import 'package:permission_handler/permission_handler.dart';import '../../../../core/platform/platform_channels.dart';import '../../domain/entities/step_data.dart';/// DataSource para acelerómetro usando EventChannel////// - EventChannel se usa para STREAMS de datos continuos/// - A diferencia de MethodChannel (petición/respuesta),///   EventChannel envía datos constantementeabstract class AccelerometerDataSource {  Stream&lt;StepData&gt; get stepStream;  Future&lt;void&gt; startCounting();  Future&lt;void&gt; stopCounting();  Future&lt;bool&gt; requestPermissions();}class AccelerometerDataSourceImpl implements AccelerometerDataSource {  /// EventChannel: para recibir stream de datos  final EventChannel _eventChannel = const EventChannel(    PlatformChannels.accelerometer  );  /// MethodChannel auxiliar: para control (start/stop)  final MethodChannel _methodChannel = const MethodChannel(    '${PlatformChannels.accelerometer}/control'  );  @override  Stream&lt;StepData&gt; get stepStream {    /// receiveBroadcastStream(): crea un stream que recibe    /// datos continuamente desde el lado Android    return _eventChannel.receiveBroadcastStream().map((event) {      return StepData.fromMap(event as Map&lt;dynamic, dynamic&gt;);    });  }  @override  Future&lt;void&gt; startCounting() async {    await _methodChannel.invokeMethod('start');  }  @override  Future&lt;void&gt; stopCounting() async {    await _methodChannel.invokeMethod('stop');  }  @override  Future&lt;bool&gt; requestPermissions() async {    final activityStatus = await Permission.activityRecognition.request();    final sensorsStatus = await Permission.sensors.request();    return activityStatus.isGranted &amp;&amp; sensorsStatus.isGranted;  }}
+
+
+1.7.5Paso 2.3: Implementar Lado Android (Acelerómetro)
+
+
+Agregar al MainActivity.kt:
+
+
+// Importaciones adicionalesimport android.hardware.Sensorimport android.hardware.SensorEventimport android.hardware.SensorEventListenerimport android.hardware.SensorManagerimport kotlin.math.sqrtimport io.flutter.plugin.common.EventChannel// Dentro de MainActivity, agregar:private val ACCELEROMETER_CHANNEL = "com.tuinstituto.fitness/accelerometer"// En configureFlutterEngine(), agregar después de la biometría:setupAccelerometerChannel(flutterEngine)// Al final de la clase, agregar método:/** * Configurar EventChannel para acelerómetro * * EXPLICACIÓN DIDÁCTICA: * - EventChannel.StreamHandler tiene 2 métodos: *   1. onListen: cuando Flutter comienza a escuchar *   2. onCancel: cuando Flutter deja de escuchar */private fun setupAccelerometerChannel(flutterEngine: FlutterEngine) {    val sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager    val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)    var stepCount = 0    var lastMagnitude = 0.0    var sensorEventListener: SensorEventListener? = null    // Variables para suavizado    val magnitudeHistory = mutableListOf&lt;Double&gt;()    val historySize = 10    var sampleCount = 0    var lastActivityType = "stationary"    var activityConfidence = 0    // ═══════════════════════════════════════════════════════════    // CONFIGURAR EVENT CHANNEL    // ═══════════════════════════════════════════════════════════    EventChannel(        flutterEngine.dartExecutor.binaryMessenger,        ACCELEROMETER_CHANNEL    ).setStreamHandler(object : EventChannel.StreamHandler {        /**         * onListen: Flutter comenzó a escuchar el stream         * AQUÍ iniciamos el sensor         */        override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {            sensorEventListener = object : SensorEventListener {                override fun onSensorChanged(event: SensorEvent?) {                    event?.let {                        // Calcular magnitud del vector                        val x = it.values[0]                        val y = it.values[1]                        val z = it.values[2]                        val magnitude = sqrt((x * x + y * y + z * z).toDouble())                        // Promedio móvil para suavizar                        magnitudeHistory.add(magnitude)                        if (magnitudeHistory.size &gt; historySize) {                            magnitudeHistory.removeAt(0)                        }                        val avgMagnitude = magnitudeHistory.average()                        // Detectar paso                        if (magnitude &gt; 12 &amp;&amp; lastMagnitude &lt;= 12) {                            stepCount++                        }                        lastMagnitude = magnitude                        // Determinar actividad (con promedio)                        val newActivityType = when {                            avgMagnitude &lt; 10.5 -&gt; "stationary"                            avgMagnitude &lt; 13.5 -&gt; "walking"                            else -&gt; "running"                        }                        // Solo cambiar si hay confianza                        if (newActivityType == lastActivityType) {                            activityConfidence++                        } else {                            activityConfidence = 0                        }                        val finalActivityType = if (activityConfidence &gt;= 3) {                            newActivityType                        } else {                            lastActivityType                        }                        lastActivityType = newActivityType                        // Enviar cada 3 muestras                        sampleCount++                        if (sampleCount &gt;= 3) {                            sampleCount = 0                            // ENVIAR DATOS A FLUTTER                            val data = mapOf(                                "stepCount" to stepCount,                                "activityType" to finalActivityType,                                "magnitude" to avgMagnitude                            )                            // events?.success: envía datos al stream                            events?.success(data)                        }                    }                }                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}            }            // Registrar listener del sensor            sensorManager.registerListener(                sensorEventListener,                accelerometer,                SensorManager.SENSOR_DELAY_GAME            )        }        /**         * onCancel: Flutter dejó de escuchar         * AQUÍ detenemos el sensor         */        override fun onCancel(arguments: Any?) {            sensorEventListener?.let {                sensorManager.unregisterListener(it)            }            sensorEventListener = null        }    })    // MethodChannel auxiliar para control    MethodChannel(        flutterEngine.dartExecutor.binaryMessenger,        "$ACCELEROMETER_CHANNEL/control"    ).setMethodCallHandler { call, result -&gt;        when (call.method) {            "start" -&gt; {                stepCount = 0                result.success(null)            }            "stop" -&gt; {                result.success(null)            }            "reset" -&gt; {                stepCount = 0                result.success(null)            }            else -&gt; result.notImplemented()        }    }}
+
+
+
+
+
+
+
+
+1.7.6Paso 2.4: Crear Widget
+
+
+lib/features/steps/presentation/widgets/step_counter_widget.dart
+
+
+import 'package:flutter/material.dart';import 'dart:async';import '../../../auth/data/datasources/accelerometer_datasource.dart';import '../../../auth/domain/entities/step_data.dart';/// Widget que muestra el contador de pasos////// EXPLICACIÓN DIDÁCTICA:/// - Usa StreamSubscription para escuchar el EventChannel/// - Actualiza UI cada vez que llegan nuevos datosclass StepCounterWidget extends StatefulWidget {  const StepCounterWidget({super.key});  @override  State&lt;StepCounterWidget&gt; createState() =&gt; _StepCounterWidgetState();}class _StepCounterWidgetState extends State&lt;StepCounterWidget&gt; {  final AccelerometerDataSource _dataSource = AccelerometerDataSourceImpl();  StreamSubscription&lt;StepData&gt;? _subscription;  StepData? _currentData;  bool _isTracking = false;  @override  void dispose() {    _subscription?.cancel();    super.dispose();  }  void _toggleTracking() {    if (_isTracking) {      _stopTracking();    } else {      _startTracking();    }  }  void _startTracking() async {    // Solicitar permisos    final hasPermission = await _dataSource.requestPermissions();    if (!hasPermission) {      if (mounted) {        ScaffoldMessenger.of(context).showSnackBar(          const SnackBar(            content: Text('Permisos de sensores denegados'),            backgroundColor: Colors.red,          ),        );      }      return;    }    await _dataSource.startCounting();    // SUSCRIBIRSE AL STREAM    _subscription = _dataSource.stepStream.listen(      (data) {        setState(() {          _currentData = data;        });      },      onError: (error) {        print('Error en stream: $error');      },    );    setState(() {      _isTracking = true;    });  }  void _stopTracking() async {    await _dataSource.stopCounting();    _subscription?.cancel();    setState(() {      _isTracking = false;    });  }  @override  Widget build(BuildContext context) {    return Card(      elevation: 4,      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),      child: Padding(        padding: const EdgeInsets.all(20),        child: Column(          children: [            // Header            Row(              mainAxisAlignment: MainAxisAlignment.spaceBetween,              children: [                const Text(                  'Contador de Pasos',                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),                ),                ElevatedButton.icon(                  onPressed: _toggleTracking,                  icon: Icon(_isTracking ? Icons.stop : Icons.play_arrow),                  label: Text(_isTracking ? 'Detener' : 'Iniciar'),                  style: ElevatedButton.styleFrom(                    backgroundColor: _isTracking ? Colors.red : Colors.green,                    foregroundColor: Colors.white,                  ),                ),              ],            ),            const Divider(),            // Contador            Text(              '${_currentData?.stepCount ?? 0}',              style: const TextStyle(                fontSize: 64,                fontWeight: FontWeight.bold,                color: Color(0xFF6366F1),              ),            ),            const Text('pasos', style: TextStyle(fontSize: 16, color: Colors.grey)),            const SizedBox(height: 16),            // Indicadores            Row(              mainAxisAlignment: MainAxisAlignment.spaceEvenly,              children: [                _buildInfoChip(                  icon: _getActivityIcon(_currentData?.activityType),                  label: _getActivityLabel(_currentData?.activityType),                  color: Colors.blue,                ),                _buildInfoChip(                  icon: Icons.local_fire_department,                  label: '${_currentData?.estimatedCalories.toStringAsFixed(1) ?? "0"} cal',                  color: Colors.orange,                ),              ],            ),          ],        ),      ),    );  }  Widget _buildInfoChip({    required IconData icon,    required String label,    required Color color,  }) {    return Container(      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),      decoration: BoxDecoration(        color: color.withOpacity(0.1),        borderRadius: BorderRadius.circular(20),      ),      child: Row(        children: [          Icon(icon, size: 20, color: color),          const SizedBox(width: 6),          Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w500)),        ],      ),    );  }  IconData _getActivityIcon(ActivityType? type) {    switch (type) {      case ActivityType.walking:        return Icons.directions_walk;      case ActivityType.running:        return Icons.directions_run;      case ActivityType.stationary:        return Icons.accessibility_new;      default:        return Icons.help_outline;    }  }  String _getActivityLabel(ActivityType? type) {    switch (type) {      case ActivityType.walking:        return 'Caminando';      case ActivityType.running:        return 'Corriendo';      case ActivityType.stationary:        return 'Quieto';      default:        return 'Detectando...';    }  }}
+
+
+
+
+
+1.8Módulo 3: Tracking GPS
+
+
+1.8.1Objetivo
+
+
+Implementar tracking de rutas GPS usando EventChannel + MethodChannel.
+
+
+1.8.2Diagrama de Arquitectura
+
+
+
+
+
+1.8.3Paso 3.1: Crear Entity
+
+
+lib/features/tracking/domain/entities/location_point.dart
+
+
+import 'package:equatable/equatable.dart';import 'dart:math' as math;/// Punto de ubicación GPSclass LocationPoint extends Equatable {  final double latitude;  final double longitude;  final double altitude;  final double speed;  final double accuracy;  final DateTime timestamp;  const LocationPoint({    required this.latitude,    required this.longitude,    this.altitude = 0,    this.speed = 0,    this.accuracy = 0,    required this.timestamp,  });  factory LocationPoint.fromMap(Map&lt;dynamic, dynamic&gt; map) {    return LocationPoint(      latitude: (map['latitude'] as num).toDouble(),      longitude: (map['longitude'] as num).toDouble(),      altitude: (map['altitude'] as num?)?.toDouble() ?? 0,      speed: (map['speed'] as num?)?.toDouble() ?? 0,      accuracy: (map['accuracy'] as num?)?.toDouble() ?? 0,      timestamp: DateTime.now(),    );  }  /// Calcular distancia a otro punto (fórmula Haversine)  double distanceTo(LocationPoint other) {    const earthRadius = 6371000.0; // metros    final lat1Rad = latitude * math.pi / 180;    final lat2Rad = other.latitude * math.pi / 180;    final deltaLat = (other.latitude - latitude) * math.pi / 180;    final deltaLon = (other.longitude - longitude) * math.pi / 180;    final a = math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +              math.cos(lat1Rad) * math.cos(lat2Rad) *              math.sin(deltaLon / 2) * math.sin(deltaLon / 2);    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));    return earthRadius * c;  }  @override  List&lt;Object?&gt; get props =&gt; [latitude, longitude, timestamp];}/// Representa una ruta completaclass Route {  final List&lt;LocationPoint&gt; points;  final DateTime startTime;  DateTime? endTime;  Route({    List&lt;LocationPoint&gt;? points,    DateTime? startTime,  }) : points = points ?? [],       startTime = startTime ?? DateTime.now();  void addPoint(LocationPoint point) {    points.add(point);  }  void finish() {    endTime = DateTime.now();  }  double get totalDistance {    if (points.length &lt; 2) return 0;    double distance = 0;    for (int i = 1; i &lt; points.length; i++) {      distance += points[i - 1].distanceTo(points[i]);    }    return distance;  }  double get distanceKm =&gt; totalDistance / 1000;  Duration get duration {    final end = endTime ?? DateTime.now();    return end.difference(startTime);  }  double get averageSpeed {    final hours = duration.inSeconds / 3600;    if (hours == 0) return 0;    return distanceKm / hours;  }  double get estimatedCalories =&gt; distanceKm * 60;}
+
+
+1.8.4Paso 3.2: Crear DataSource (Lado Flutter)
+
+
+lib/features/tracking/data/datasources/gps_datasource.dart
+
+
+import 'package:flutter/services.dart';import 'package:permission_handler/permission_handler.dart';import '../../../../core/platform/platform_channels.dart';import '../../domain/entities/location_point.dart';/// DataSource para GPS////// EXPLICACIÓN DIDÁCTICA:/// - Combina MethodChannel (operaciones puntuales)/// - Con EventChannel (stream de ubicaciones)abstract class GpsDataSource {  Future&lt;LocationPoint?&gt; getCurrentLocation();  Stream&lt;LocationPoint&gt; get locationStream;  Future&lt;bool&gt; isGpsEnabled();  Future&lt;bool&gt; requestPermissions();}class GpsDataSourceImpl implements GpsDataSource {  final MethodChannel _methodChannel = const MethodChannel(    PlatformChannels.gps  );  final EventChannel _eventChannel = const EventChannel(    '${PlatformChannels.gps}/stream'  );  @override  Future&lt;LocationPoint?&gt; getCurrentLocation() async {    try {      final result = await _methodChannel.invokeMethod('getCurrentLocation');      if (result != null) {        return LocationPoint.fromMap(result as Map&lt;dynamic, dynamic&gt;);      }      return null;    } on PlatformException catch (e) {      print('Error obteniendo ubicación: ${e.message}');      return null;    }  }  @override  Stream&lt;LocationPoint&gt; get locationStream {    return _eventChannel.receiveBroadcastStream().map((event) {      return LocationPoint.fromMap(event as Map&lt;dynamic, dynamic&gt;);    });  }  @override  Future&lt;bool&gt; isGpsEnabled() async {    try {      return await _methodChannel.invokeMethod('isGpsEnabled') ?? false;    } on PlatformException {      return false;    }  }  @override  Future&lt;bool&gt; requestPermissions() async {    final locationStatus = await Permission.location.request();    if (!locationStatus.isGranted) {      final whenInUseStatus = await Permission.locationWhenInUse.request();      return whenInUseStatus.isGranted;    }    return locationStatus.isGranted;  }}
+
+
+1.8.5Paso 3.3: Implementar Lado Android (GPS)
+
+
+Agregar al MainActivity.kt:
+
+
+// Importaciones adicionalesimport android.Manifestimport android.content.pm.PackageManagerimport android.location.Locationimport android.location.LocationListenerimport android.location.LocationManagerimport androidx.core.app.ActivityCompat// Constanteprivate val GPS_CHANNEL = "com.tuinstituto.fitness/gps"private const val LOCATION_PERMISSION_REQUEST_CODE = 1001// En configureFlutterEngine(), agregar:setupGpsChannel(flutterEngine)// Al final de la clase, agregar:private fun setupGpsChannel(flutterEngine: FlutterEngine) {    val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager    var locationListener: LocationListener? = null    // ═══════════════════════════════════════════════════════════    // METHOD CHANNEL - Operaciones puntuales    // ═══════════════════════════════════════════════════════════    MethodChannel(        flutterEngine.dartExecutor.binaryMessenger,        GPS_CHANNEL    ).setMethodCallHandler { call, result -&gt;        when (call.method) {            "isGpsEnabled" -&gt; {                val isEnabled = locationManager.isProviderEnabled(                    LocationManager.GPS_PROVIDER                )                result.success(isEnabled)            }            "requestPermissions" -&gt; {                if (hasLocationPermission()) {                    result.success(true)                } else {                    ActivityCompat.requestPermissions(                        this,                        arrayOf(                            Manifest.permission.ACCESS_FINE_LOCATION,                            Manifest.permission.ACCESS_COARSE_LOCATION                        ),                        LOCATION_PERMISSION_REQUEST_CODE                    )                    result.success(hasLocationPermission())                }            }            "getCurrentLocation" -&gt; {                if (!hasLocationPermission()) {                    result.error("PERMISSION_DENIED", "Sin permisos", null)                    return@setMethodCallHandler                }                try {                    val location = locationManager.getLastKnownLocation(                        LocationManager.GPS_PROVIDER                    ) ?: locationManager.getLastKnownLocation(                        LocationManager.NETWORK_PROVIDER                    )                    if (location != null) {                        result.success(locationToMap(location))                    } else {                        result.error("NO_LOCATION", "No disponible", null)                    }                } catch (e: SecurityException) {                    result.error("SECURITY_ERROR", e.message, null)                }            }            else -&gt; result.notImplemented()        }    }    // ═══════════════════════════════════════════════════════════    // EVENT CHANNEL - Stream de ubicaciones    // ═══════════════════════════════════════════════════════════    EventChannel(        flutterEngine.dartExecutor.binaryMessenger,        "$GPS_CHANNEL/stream"    ).setStreamHandler(object : EventChannel.StreamHandler {        override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {            if (!hasLocationPermission()) {                events?.error("PERMISSION_DENIED", "Sin permisos", null)                return            }            locationListener = object : LocationListener {                override fun onLocationChanged(location: Location) {                    // Enviar ubicación a Flutter                    events?.success(locationToMap(location))                }                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}                override fun onProviderEnabled(provider: String) {}                override fun onProviderDisabled(provider: String) {}            }            try {                // Solicitar actualizaciones                locationManager.requestLocationUpdates(                    LocationManager.GPS_PROVIDER,                    1000L,      // cada 1 segundo                    0f,         // cualquier distancia                    locationListener!!                )            } catch (e: SecurityException) {                events?.error("SECURITY_ERROR", e.message, null)            }        }        override fun onCancel(arguments: Any?) {            locationListener?.let {                locationManager.removeUpdates(it)            }            locationListener = null        }    })}private fun hasLocationPermission(): Boolean {    return ContextCompat.checkSelfPermission(        this,        Manifest.permission.ACCESS_FINE_LOCATION    ) == PackageManager.PERMISSION_GRANTED}private fun locationToMap(location: Location): Map&lt;String, Any&gt; {    return mapOf(        "latitude" to location.latitude,        "longitude" to location.longitude,        "altitude" to location.altitude,        "speed" to location.speed.toDouble(),        "accuracy" to location.accuracy.toDouble(),        "timestamp" to location.time    )}
+
+
+1.8.6Paso 3.4: Crear Widget
+
+
+lib/features/tracking/presentation/widgets/route_map_widget.dart
+
+
+import 'package:flutter/material.dart' hide Route;import 'dart:async';import '../../data/datasources/gps_datasource.dart';import '../../domain/entities/location_point.dart';class RouteMapWidget extends StatefulWidget {  const RouteMapWidget({super.key});  @override  State&lt;RouteMapWidget&gt; createState() =&gt; _RouteMapWidgetState();}class _RouteMapWidgetState extends State&lt;RouteMapWidget&gt; {  final GpsDataSource _dataSource = GpsDataSourceImpl();  final Route _route = Route();  StreamSubscription&lt;LocationPoint&gt;? _subscription;  bool _isTracking = false;  String _statusMessage = 'Presiona Iniciar';  @override  void dispose() {    _subscription?.cancel();    super.dispose();  }  Future&lt;void&gt; _toggleTracking() async {    if (_isTracking) {      _stopTracking();    } else {      await _startTracking();    }  }  Future&lt;void&gt; _startTracking() async {    final hasPermission = await _dataSource.requestPermissions();    if (!hasPermission) {      setState(() {        _statusMessage = 'Permisos denegados';      });      return;    }    final gpsEnabled = await _dataSource.isGpsEnabled();    if (!gpsEnabled) {      setState(() {        _statusMessage = 'Activa el GPS';      });      return;    }    _subscription = _dataSource.locationStream.listen(      (point) {        print('📍 GPS: ${point.latitude}, ${point.longitude}, acc=${point.accuracy}m');        if (_route.points.isEmpty) {          setState(() {            _route.addPoint(point);            _statusMessage = 'Tracking - ${_route.points.length} puntos';          });        } else {          final lastPoint = _route.points.last;          final distance = lastPoint.distanceTo(point);          if (distance &gt;= 2) {            setState(() {              _route.addPoint(point);              _statusMessage = 'Tracking - ${_route.points.length} puntos';            });          }        }      },      onError: (error) {        print('❌ GPS Error: $error');        setState(() {          _statusMessage = 'Error: $error';        });      },    );    setState(() {      _isTracking = true;    });  }  void _stopTracking() {    _subscription?.cancel();    _route.finish();    setState(() {      _isTracking = false;      _statusMessage = 'Ruta finalizada';    });  }  @override  Widget build(BuildContext context) {    return Card(      elevation: 4,      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),      child: Column(        children: [          // Header          Padding(            padding: const EdgeInsets.all(16),            child: Column(              crossAxisAlignment: CrossAxisAlignment.start,              children: [                Row(                  mainAxisAlignment: MainAxisAlignment.spaceBetween,                  children: [                    const Text(                      'Ruta GPS',                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),                    ),                    ElevatedButton.icon(                      onPressed: _toggleTracking,                      icon: Icon(_isTracking ? Icons.stop : Icons.play_arrow),                      label: Text(_isTracking ? 'Detener' : 'Iniciar'),                      style: ElevatedButton.styleFrom(                        backgroundColor: _isTracking ? Colors.red : Colors.green,                        foregroundColor: Colors.white,                      ),                    ),                  ],                ),                const SizedBox(height: 8),                Text(                  _statusMessage,                  style: TextStyle(                    color: _isTracking ? Colors.green : Colors.grey,                    fontSize: 12,                  ),                ),              ],            ),          ),          // Mapa (Canvas)          Container(            height: 200,            margin: const EdgeInsets.symmetric(horizontal: 16),            decoration: BoxDecoration(              color: Colors.grey[100],              borderRadius: BorderRadius.circular(12),              border: Border.all(color: Colors.grey[300]!),            ),            child: ClipRRect(              borderRadius: BorderRadius.circular(12),              child: CustomPaint(                painter: RoutePainter(route: _route),                size: Size.infinite,              ),            ),          ),          const SizedBox(height: 16),          // Métricas          Padding(            padding: const EdgeInsets.all(16),            child: Row(              mainAxisAlignment: MainAxisAlignment.spaceEvenly,              children: [                _buildMetric(                  icon: Icons.straighten,                  value: '${_route.distanceKm.toStringAsFixed(2)} km',                  label: 'Distancia',                ),                _buildMetric(                  icon: Icons.timer,                  value: _formatDuration(_route.duration),                  label: 'Tiempo',                ),                _buildMetric(                  icon: Icons.speed,                  value: '${_route.averageSpeed.toStringAsFixed(1)} km/h',                  label: 'Velocidad',                ),                _buildMetric(                  icon: Icons.local_fire_department,                  value: '${_route.estimatedCalories.toStringAsFixed(0)}',                  label: 'Calorías',                ),              ],            ),          ),        ],      ),    );  }  Widget _buildMetric({    required IconData icon,    required String value,    required String label,  }) {    return Column(      children: [        Icon(icon, color: const Color(0xFF6366F1)),        const SizedBox(height: 4),        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),        Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 12)),      ],    );  }  String _formatDuration(Duration duration) {    final hours = duration.inHours;    final minutes = duration.inMinutes.remainder(60);    final seconds = duration.inSeconds.remainder(60);    if (hours &gt; 0) {      return '${hours}h ${minutes}m';    }    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';  }}/// CustomPainter para dibujar la rutaclass RoutePainter extends CustomPainter {  final Route route;  RoutePainter({required this.route});  @override  void paint(Canvas canvas, Size size) {    if (route.points.isEmpty) {      final textPainter = TextPainter(        text: const TextSpan(          text: 'Sin datos de ruta',          style: TextStyle(color: Colors.grey, fontSize: 14),        ),        textDirection: TextDirection.ltr,      );      textPainter.layout();      textPainter.paint(        canvas,        Offset(          (size.width - textPainter.width) / 2,          (size.height - textPainter.height) / 2,        ),      );      return;    }    // Calcular bounds    double minLat = route.points.first.latitude;    double maxLat = route.points.first.latitude;    double minLon = route.points.first.longitude;    double maxLon = route.points.first.longitude;    for (final point in route.points) {      if (point.latitude &lt; minLat) minLat = point.latitude;      if (point.latitude &gt; maxLat) maxLat = point.latitude;      if (point.longitude &lt; minLon) minLon = point.longitude;      if (point.longitude &gt; maxLon) maxLon = point.longitude;    }    final padding = 20.0;    final drawWidth = size.width - padding * 2;    final drawHeight = size.height - padding * 2;    Offset toPixel(LocationPoint point) {      final latRange = maxLat - minLat;      final lonRange = maxLon - minLon;      final x = lonRange == 0          ? drawWidth / 2          : ((point.longitude - minLon) / lonRange) * drawWidth;      final y = latRange == 0          ? drawHeight / 2          : ((maxLat - point.latitude) / latRange) * drawHeight;      return Offset(x + padding, y + padding);    }    // Dibujar línea    final linePaint = Paint()      ..color = const Color(0xFF6366F1)      ..strokeWidth = 4      ..style = PaintingStyle.stroke      ..strokeCap = StrokeCap.round      ..strokeJoin = StrokeJoin.round;    final path = Path();    path.moveTo(toPixel(route.points.first).dx, toPixel(route.points.first).dy);    for (int i = 1; i &lt; route.points.length; i++) {      final pixel = toPixel(route.points[i]);      path.lineTo(pixel.dx, pixel.dy);    }    canvas.drawPath(path, linePaint);    // Punto inicio (verde)    final startPaint = Paint()..color = Colors.green;    canvas.drawCircle(toPixel(route.points.first), 8, startPaint);    // Punto final (rojo)    final endPaint = Paint()..color = Colors.red;    canvas.drawCircle(toPixel(route.points.last), 8, endPaint);  }  @override  bool shouldRepaint(RoutePainter oldDelegate) {    return oldDelegate.route.points.length != route.points.length;  }}
+
+
+
+
+
+1.9Integración Final
+
+
+1.9.1main.dart Completo
+
+
+lib/main.dart
+
+
+import 'package:flutter/material.dart';import 'package:flutter_bloc/flutter_bloc.dart';import 'features/auth/data/datasources/biometric_datasource.dart';import 'features/auth/domain/usecases/authenticate_user.dart';import 'features/auth/presentation/bloc/auth_bloc.dart';import 'features/auth/presentation/pages/login_page.dart';import 'features/steps/presentation/widgets/step_counter_widget.dart';import 'features/tracking/presentation/widgets/route_map_widget.dart';void main() {  WidgetsFlutterBinding.ensureInitialized();  runApp(const FitnessApp());}class FitnessApp extends StatelessWidget {  const FitnessApp({super.key});  @override  Widget build(BuildContext context) {    final biometricDataSource = BiometricDataSourceImpl();    final authenticateUser = AuthenticateUser(biometricDataSource);    return MaterialApp(      title: 'Fitness Tracker',      debugShowCheckedModeBanner: false,      theme: ThemeData(        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6366F1)),        useMaterial3: true,      ),      home: BlocProvider(        create: (_) =&gt; AuthBloc(authenticateUser),        child: const AuthWrapper(),      ),    );  }}class AuthWrapper extends StatefulWidget {  const AuthWrapper({super.key});  @override  State&lt;AuthWrapper&gt; createState() =&gt; _AuthWrapperState();}class _AuthWrapperState extends State&lt;AuthWrapper&gt; {  bool _isAuthenticated = false;  void _onAuthSuccess() {    setState(() {      _isAuthenticated = true;    });  }  @override  Widget build(BuildContext context) {    if (_isAuthenticated) {      return const HomePage();    }    return LoginPage(onAuthSuccess: _onAuthSuccess);  }}class HomePage extends StatelessWidget {  const HomePage({super.key});  @override  Widget build(BuildContext context) {    return Scaffold(      appBar: AppBar(        title: const Text('Fitness Tracker'),        backgroundColor: const Color(0xFF6366F1),        foregroundColor: Colors.white,        elevation: 0,      ),      body: const SingleChildScrollView(        padding: EdgeInsets.all(16),        child: Column(          children: [            StepCounterWidget(),            SizedBox(height: 16),            RouteMapWidget(),          ],        ),      ),    );  }}
+
+
+
+
+
+
+
+MEGA RETO: Detector de actividad física con aviso por voz
+
+En este reto van a implementar que su aplicación detecte en tiempo real si el usuario está caminando, corriendo o se ha caído, y que comunique cada cambio de estado mediante síntesis de voz. No se trata solo de que el código funcione: también tienen que justificar las decisiones técnicas que tomaron. Ya no es necesario usar portchannels sino plugins.
+
+1. Funcionalidad esperada
+
+La aplicación debe cumplir lo siguiente:
+
+Detectar de forma continua si el usuario está caminando, corriendo o ha dejado de moverse.
+
+Cada vez que el estado de actividad cambie, la aplicación debe anunciarlo en voz alta. Por ejemplo: "Estás corriendo" o "Cambiaste a caminata".
+
+Detectar cuando el usuario se ha caído y mostrar inmediatamente un diálogo que le pregunte si está bien. Si el usuario no responde en 15 segundos, el diálogo debe mostrar un mensaje secundario que refuerce la solicitud de confirmación.
+
+Evitar avisos repetitivos o falsos: el aviso de voz solo debe dispararse si el nuevo estado se ha mantenido estable durante al menos un intervalo de tiempo que el estudiante debe definir y justificar.
+
+2. Decisiones técnicas que deben tomar
+
+2.1 Detección de actividad
+
+Tienen dos opciones para detectar si el usuario camina o corre: el paquete sensors_plus, que te da acceso a los datos crudos del acelerómetro, o el paquete activity_recognition_flutter, que ya clasifica la actividad. Deben analizar ambos, elegir uno y justificar su elección.
+
+Para orientar su análisis, consideren al menos:
+
+Qué devuelve cada paquete y que tienen que procesar ustedes de forma independiente.
+
+Cuál tiene mejor soporte para Android
+
+Cuál le resulta más adecuado dado el alcance de esta aplicación.
+
+2.2 Detección de caída
+
+Ninguno de los dos paquetes mencionados anteriormente detecta caídas directamente. Para esto necesitás trabajar con los datos crudos del acelerómetro usando sensors_plus, independientemente del paquete que hayas elegido para la actividad.
+
+Una caída produce un cambio brusco en la aceleración del dispositivo. Para detectarla, investiguen cómo calcular la magnitud resultante de los tres ejes del acelerómetro (x, y, z) y determinen a partir de qué valor ese cambio puede interpretarse como un impacto. Ese umbral deben definirlo y justificarlo.
+
+Consideren también que el acelerómetro es ruidoso y puede generar picos falsos. Tu solución debe contemplar algún mecanismo para reducir los falsos positivos.
+
+2.3 Síntesis de voz
+
+Para los avisos de voz pueden usar flutter_tts u otra alternativa que encuentren. Si eligen una opción diferente, justificar por qué consideraron que es mejor para este caso.
+
+El aviso de voz debe sonar en el idioma que configure el sistema del dispositivo, o en español como mínimo. 
+
+2.4 Control del ruido del sensor
+
+Los sensores de movimiento cambian de estado con frecuencia y no siempre reflejan un cambio real de actividad. Si conectan el aviso de voz directamente al stream del sensor, la aplicación va a hablar cada pocos segundos con datos que no representan nada significativo.
+
+Para evitar esto, deben implementar un mecanismo de debounce: el aviso de voz solo se dispara si el nuevo estado se ha mantenido estable durante un tiempo que el estudiante defina, y siempre que sea diferente al último estado que ya se anunció.
+
+Investiguen qué es un debounce en el contexto de streams de datos, definan el tiempo que van a usar y justifiquen ese valor.
+
+3. Permisos requeridos
+
+La aplicación accede a sensores del dispositivo, lo que requiere permisos explícitos del sistema operativo. Deben declarar los permisos en el archivo de configuración AndroidManifest.xml y también solicitarlos al usuario en tiempo de ejecución antes de intentar acceder a cualquier sensor.
+
+Si la aplicación omite este paso, el sensor simplemente no devuelve datos y no lanza ningún error visible. Identifiquen cuáles son los permisos específicos que necesitan.
+
+
+
+Entregables
+
+
+Subir el pdf con el enlace de github del Proyecto
+
+
+Demostrar en clase al docente la culminación del reto, en campo traviesa, el estudiante genera el apk en su celular  y hace la actividad física con el audio alto de su celular donde debe demostrar que si camina , corre o simula caída, su aplicación lanza notificaciones de voz identificando la actividad o el mensaje de alerta donde se pide confirmar si se encuentra bien.
+
+
+
+
+
